@@ -30,7 +30,7 @@ def calculate_CSR(a_max, g, sigma_v0, sigma_v0_eff, rd):
 
 def calculate_CRR(N60, soil_type):
     if "CL" in soil_type or "ML" in soil_type:
-        return 0.2  # For fine-grained soils (approximation)
+        return 0.2  # For fine-grained soils
     elif N60 <= 15:
         return (1 / 34.0) * N60 + (N60 ** 2 / 1260.0)
     elif N60 <= 30:
@@ -39,37 +39,38 @@ def calculate_CRR(N60, soil_type):
         return 1.2
 
 def get_rd(z):
-    return max(0.5, 1.0 - 0.015 * z)  # Minimum limit
+    return max(0.5, 1.0 - 0.015 * z)
 
-# --- Streamlit UI ---
+# --- Streamlit UI Setup ---
 st.set_page_config(page_title="Liquefaction Calculator", layout="centered")
-
 st.title("🧪 Soil Classification & Liquefaction Calculator")
-st.write("This tool classifies the soil and evaluates liquefaction potential using CSR vs CRR method.")
+st.caption("This tool classifies the soil and evaluates liquefaction potential using the CSR vs CRR method.")
 
+# --- Step 1: Soil Classification Inputs ---
 with st.expander("📌 Step 1: Soil Classification Inputs"):
     col1, col2 = st.columns(2)
     with col1:
-        D10 = st.number_input("D10 (mm)", value=0.1)
-        D30 = st.number_input("D30 (mm)", value=0.25)
-        D60 = st.number_input("D60 (mm)", value=0.6)
-        percent_finer_200 = st.number_input("Passing 75 micron (%)", value=35)
+        D10 = st.number_input("D10 (mm)", value=0.1, min_value=0.01, step=0.01)
+        D30 = st.number_input("D30 (mm)", value=0.25, min_value=0.01, step=0.01)
+        D60 = st.number_input("D60 (mm)", value=0.6, min_value=0.01, step=0.01)
+        percent_finer_200 = st.number_input("Passing 75 micron (%)", value=35, min_value=0, max_value=100)
     with col2:
-        LL = st.number_input("Liquid Limit (LL)", value=40)
-        PL = st.number_input("Plastic Limit (PL)", value=25)
+        LL = st.number_input("Liquid Limit (LL)", value=40, min_value=0)
+        PL = st.number_input("Plastic Limit (PL)", value=25, min_value=0)
 
 soil_type = classify_soil(D10, D30, D60, LL, PL, percent_finer_200)
 st.success(f"🧾 Classified Soil Type: **{soil_type}**")
 
+# --- Step 2: Liquefaction Inputs ---
 with st.expander("📌 Step 2: Liquefaction Inputs"):
     col1, col2 = st.columns(2)
     with col1:
-        a_max = st.number_input("Peak Ground Acceleration amax (m/s²)", value=3.0)
-        sigma_v0 = st.number_input("Total Overburden Stress σv0 (kPa)", value=150.0)
-        sigma_v0_eff = st.number_input("Effective Overburden Stress σ'v0 (kPa)", value=100.0)
-        z = st.number_input("Depth (m)", value=5.0)
+        a_max = st.number_input("Peak Ground Acceleration amax (m/s²)", value=3.0, min_value=0.0)
+        sigma_v0 = st.number_input("Total Overburden Stress σv0 (kPa)", value=150.0, min_value=0.0)
+        sigma_v0_eff = st.number_input("Effective Overburden Stress σ'v0 (kPa)", value=100.0, min_value=0.0)
+        z = st.number_input("Depth (m)", value=5.0, min_value=0.0)
     with col2:
-        N = st.number_input("SPT N-value", value=15)
+        N = st.number_input("SPT N-value", value=15, min_value=1)
         CN = 1.0 + (1.5 / (sigma_v0_eff / 100))  # Overburden correction
         N60 = N * CN
 
@@ -83,19 +84,20 @@ st.write(f"🔧 Stress Reduction Factor (rd): **{rd:.2f}**")
 st.write(f"📉 CSR: **{CSR:.3f}**")
 st.write(f"📈 CRR: **{CRR:.3f}**")
 
+# --- Safety Message ---
 if FS < 1:
     st.error(f"🚨 Factor of Safety = {FS:.2f} ➤ Likely **Liquefaction**")
 else:
     st.success(f"✅ Factor of Safety = {FS:.2f} ➤ **Safe** from Liquefaction")
 
-# --- Table Summary ---
+# --- Summary Table ---
 result_data = pd.DataFrame({
     "Parameter": ["Soil Type", "N60", "rd", "CSR", "CRR", "FS"],
-    "Value": [soil_type, round(N60, 2), round(rd, 2), round(CSR, 3), round(CRR, 3), round(FS, 2)]
+    "Value": [str(soil_type), f"{N60:.2f}", f"{rd:.2f}", f"{CSR:.3f}", f"{CRR:.3f}", f"{FS:.2f}"]
 })
 st.dataframe(result_data)
 
-# --- Plot CSR vs CRR Chart ---
+# --- CSR vs CRR Plot ---
 if st.checkbox("📊 Show CSR vs CRR Chart"):
     N60_range = np.linspace(1, 30, 100)
     CRR_curve = [(1 / 34.0) * n + (n ** 2 / 1260.0) if n <= 15 else 1.2 for n in N60_range]
