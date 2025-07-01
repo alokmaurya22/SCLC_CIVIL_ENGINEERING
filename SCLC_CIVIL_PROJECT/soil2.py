@@ -5,6 +5,12 @@ st.set_page_config(page_title="Soil Liquefaction App", layout="centered")
 
 st.title("🌍 Soil Classification & Liquefaction Analysis")
 
+# Reset button
+if st.button("🔁 Reset All Inputs"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.experimental_rerun()
+
 # Initialize session state
 if 'step1_complete' not in st.session_state:
     st.session_state.step1_complete = False
@@ -21,15 +27,15 @@ with st.expander("ℹ️ What is Soil Classification?"):
 
 st.markdown("Provide Atterberg limits and grain size data:")
 
-ll = st.number_input("Liquid Limit (LL) [%]", min_value=0.0, max_value=100.0, value=30.0, help="Water content at which soil changes from plastic to liquid")
-pl = st.number_input("Plastic Limit (PL) [%]", min_value=0.0, max_value=100.0, value=20.0, help="Water content at which soil starts behaving plastically")
-fines = st.number_input("Fines Content [% passing 75µm sieve]", min_value=0.0, max_value=100.0, value=35.0, help="Percentage of soil passing 75 micron sieve")
+ll = st.number_input("Liquid Limit (LL) [%]", min_value=0.0, max_value=100.0, value=0.0, help="(0–100%) Water content at which soil changes from plastic to liquid")
+pl = st.number_input("Plastic Limit (PL) [%]", min_value=0.0, max_value=100.0, value=0.0, help="(0–100%) Water content at which soil starts behaving plastically")
+fines = st.number_input("Fines Content [% passing 75µm sieve]", min_value=0.0, max_value=100.0, value=0.0, help="(0–100%) Percentage of soil passing 75 micron sieve")
 
 # Grain size data
 st.markdown("Enter Particle Size Distribution Data:")
-d10 = st.number_input("D10 (mm)", min_value=0.001, value=0.1, format="%.3f", help="Diameter at 10% finer in grain size distribution")
-d30 = st.number_input("D30 (mm)", min_value=0.001, value=0.2, format="%.3f", help="Diameter at 30% finer in grain size distribution")
-d60 = st.number_input("D60 (mm)", min_value=0.001, value=0.3, format="%.3f", help="Diameter at 60% finer in grain size distribution")
+d10 = st.number_input("D10 (mm)", min_value=0.001, max_value=10.0, value=0.001, format="%.3f", help="(0.001–10 mm) Diameter at 10% finer")
+d30 = st.number_input("D30 (mm)", min_value=0.001, max_value=10.0, value=0.001, format="%.3f", help="(0.001–10 mm) Diameter at 30% finer")
+d60 = st.number_input("D60 (mm)", min_value=0.001, max_value=10.0, value=0.001, format="%.3f", help="(0.001–10 mm) Diameter at 60% finer")
 
 if st.button("✅ Classify Soil"):
     PI = ll - pl
@@ -100,36 +106,39 @@ if st.session_state.step2_complete:
     with st.expander("ℹ️ What is Liquefaction?"):
         st.write("Liquefaction occurs when saturated soil loses strength during seismic shaking. Factor of Safety (FS) helps determine whether liquefaction is likely.")
 
-    depth = st.number_input("Depth of Soil Layer (m)", min_value=0.5, max_value=50.0, value=5.0, help="Depth of interest below ground surface")
-    gamma = st.number_input("Unit Weight of Soil (kN/m³)", min_value=10.0, max_value=25.0, value=18.0, help="Unit weight of soil layer")
-    gw_depth = st.number_input("Water Table Depth (m)", min_value=0.0, max_value=50.0, value=2.0, help="Depth to groundwater table")
+    depth = st.number_input("Depth of Soil Layer (m)", min_value=0.5, max_value=50.0, value=0.5, help="(0.5–50 m) Depth of interest below ground surface")
+    gamma = st.number_input("Unit Weight of Soil (kN/m³)", min_value=10.0, max_value=25.0, value=10.0, help="(10–25 kN/m³) Unit weight of soil layer")
+    gw_depth = st.number_input("Water Table Depth (m)", min_value=0.0, max_value=50.0, value=0.0, help="(0–50 m) Depth to groundwater table")
 
-    n_value = st.number_input("SPT N-Value", min_value=1, max_value=100, value=15, help="Standard Penetration Test blow count")
+    n_value = st.number_input("SPT N-Value", min_value=1, max_value=100, value=1, help="(1–100) Standard Penetration Test blow count")
 
     σv = gamma * depth
     σv_eff = σv - 9.81 * (depth - gw_depth if depth > gw_depth else 0)
     rd = 1.0 - 0.00765 * depth
     rd = max(rd, 0.5)
 
-    Cn = (100 / σv_eff) ** 0.5
+    Cn = (100 / σv_eff) ** 0.5 if σv_eff > 0 else 0
     N1_60 = n_value * Cn
 
-    CSR = 0.65 * st.session_state.amax_g * (σv / σv_eff) * rd
-    CRR_7_5 = (1 / (34 - N1_60)) + (N1_60 / 135) + (50 / ((10 * N1_60 + 45) ** 2)) - 1 / 200
-    CRR = CRR_7_5
-    FS = CRR / CSR
+    if σv_eff > 0:
+        CSR = 0.65 * st.session_state.amax_g * (σv / σv_eff) * rd
+        CRR_7_5 = (1 / (34 - N1_60)) + (N1_60 / 135) + (50 / ((10 * N1_60 + 45) ** 2)) - 1 / 200
+        CRR = CRR_7_5
+        FS = CRR / CSR
 
-    st.subheader("📊 Results:")
-    st.markdown(f"- Total vertical stress σv = **{σv:.2f} kPa**")
-    st.markdown(f"- Effective vertical stress σv' = **{σv_eff:.2f} kPa**")
-    st.markdown(f"- Stress reduction factor rd = **{rd:.3f}**")
-    st.markdown(f"- Overburden correction factor Cn = **{Cn:.3f}**")
-    st.markdown(f"- Corrected N-value (N1_60) = **{N1_60:.2f}**")
-    st.markdown(f"- CSR = **{CSR:.3f}**")
-    st.markdown(f"- CRR = **{CRR:.3f}**")
-    st.markdown(f"- **Factor of Safety = {FS:.2f}**")
+        st.subheader("📊 Results:")
+        st.markdown(f"- Total vertical stress σv = **{σv:.2f} kPa**")
+        st.markdown(f"- Effective vertical stress σv' = **{σv_eff:.2f} kPa**")
+        st.markdown(f"- Stress reduction factor rd = **{rd:.3f}**")
+        st.markdown(f"- Overburden correction factor Cn = **{Cn:.3f}**")
+        st.markdown(f"- Corrected N-value (N1_60) = **{N1_60:.2f}**")
+        st.markdown(f"- CSR = **{CSR:.3f}**")
+        st.markdown(f"- CRR = **{CRR:.3f}**")
+        st.markdown(f"- **Factor of Safety = {FS:.2f}**")
 
-    if FS < 1:
-        st.error("❌ Liquefaction is **likely** at this location (FS < 1).")
+        if FS < 1:
+            st.error("❌ Liquefaction is **likely** at this location (FS < 1).")
+        else:
+            st.success("✅ Liquefaction is **not likely** at this location (FS ≥ 1).")
     else:
-        st.success("✅ Liquefaction is **not likely** at this location (FS ≥ 1).")
+        st.error("❌ Invalid effective stress. Please check input values.")
