@@ -1,121 +1,135 @@
 import streamlit as st
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
+import math
 
-# --- Soil Classification Function ---
-def classify_soil(D10, D30, D60, LL, PL, percent_finer_200):
-    Cu = D60 / D10
-    Cc = (D30 ** 2) / (D10 * D60)
-    PI = LL - PL
+st.set_page_config(page_title="Soil Liquefaction App", layout="centered")
 
-    if percent_finer_200 > 50:
-        if PI < 7:
-            return "ML (Silt with low plasticity)"
-        elif PI >= 7:
-            return "CL (Clay with low to medium plasticity)"
+st.title("🌍 Soil Classification & Liquefaction Analysis")
+
+# Initialize session state
+if 'step1_complete' not in st.session_state:
+    st.session_state.step1_complete = False
+if 'step2_complete' not in st.session_state:
+    st.session_state.step2_complete = False
+
+# ---------------------------
+# Step 1: Soil Classification
+# ---------------------------
+st.header("🧱 Step 1: Soil Classification")
+
+with st.expander("ℹ️ What is Soil Classification?"):
+    st.write("Soil classification helps in identifying the type of soil based on Atterberg limits and particle size. It's important to understand the soil behavior for geotechnical design.")
+
+st.markdown("Provide Atterberg limits and grain size data:")
+
+ll = st.number_input("Liquid Limit (LL) [%]", min_value=0.0, max_value=100.0, value=30.0, help="Water content at which soil changes from plastic to liquid")
+pl = st.number_input("Plastic Limit (PL) [%]", min_value=0.0, max_value=100.0, value=20.0, help="Water content at which soil starts behaving plastically")
+fines = st.number_input("Fines Content [% passing 75µm sieve]", min_value=0.0, max_value=100.0, value=35.0, help="Percentage of soil passing 75 micron sieve")
+
+# Grain size data
+st.markdown("Enter Particle Size Distribution Data:")
+d10 = st.number_input("D10 (mm)", min_value=0.001, value=0.1, format="%.3f", help="Diameter at 10% finer in grain size distribution")
+d30 = st.number_input("D30 (mm)", min_value=0.001, value=0.2, format="%.3f", help="Diameter at 30% finer in grain size distribution")
+d60 = st.number_input("D60 (mm)", min_value=0.001, value=0.3, format="%.3f", help="Diameter at 60% finer in grain size distribution")
+
+if st.button("✅ Classify Soil"):
+    PI = ll - pl
+    cu = d60 / d10
+    cc = (d30 ** 2) / (d10 * d60)
+
+    if fines > 50:
+        if PI > 7:
+            soil_type = "CL (Clay with low plasticity)"
+        else:
+            soil_type = "ML (Silt with low plasticity)"
+    elif fines > 12:
+        soil_type = "SM (Silty Sand or Sandy Silt)"
     else:
-        if Cu > 4 and 1 < Cc < 3:
-            return "GW (Well-graded gravel)"
-        elif Cu <= 4 or not (1 < Cc < 3):
-            return "GP (Poorly graded gravel)"
-        elif percent_finer_200 > 12:
-            return "SC/SM (Clayey or silty sand)"
+        if cu > 4 and 1 < cc < 3:
+            soil_type = "SW (Well-Graded Sand)"
+        else:
+            soil_type = "SP (Poorly graded Sand)"
 
-    return "Check data again"
+    st.session_state.soil_type = soil_type
+    st.session_state.step1_complete = True
+    st.success(f"🔍 Soil Type Classified: **{soil_type}**")
 
-# --- Liquefaction Calculation Functions ---
-def calculate_CSR(a_max, g, sigma_v0, sigma_v0_eff, rd):
-    return 0.65 * (a_max / g) * (sigma_v0 / sigma_v0_eff) * rd
+# ---------------------------
+# Step 2: amax Calculation (auto-determined by soil type)
+# ---------------------------
+if st.session_state.step1_complete:
+    st.header("📈 Step 2: Peak Ground Acceleration (aₘₐₓ)")
 
-def calculate_CRR(N60, soil_type):
+    with st.expander("ℹ️ What is aₘₐₓ?"):
+        st.write("aₘₐₓ is the peak ground acceleration during an earthquake. It depends on the seismic zone and amplification factor due to soil type.")
+
+    soil_type = st.session_state.soil_type
+    if "CL" in soil_type:
+        seismic_zone = "Zone III"
+    elif "ML" in soil_type:
+        seismic_zone = "Zone IV"
+    elif "SM" in soil_type:
+        seismic_zone = "Zone IV"
+    else:
+        seismic_zone = "Zone II"
+
+    zone_factors = {"Zone II": 0.10, "Zone III": 0.16, "Zone IV": 0.24, "Zone V": 0.36}
+    Z = zone_factors[seismic_zone]
+
     if "CL" in soil_type or "ML" in soil_type:
-        return 0.2  # For fine-grained soils
-    elif N60 <= 15:
-        return (1 / 34.0) * N60 + (N60 ** 2 / 1260.0)
-    elif N60 <= 30:
-        return (N60 - 15) / 15.0 * (1.2 - (1 / 34.0) * 15 - (15 ** 2 / 1260.0)) + (1 / 34.0) * 15 + (15 ** 2 / 1260.0)
+        S = 1.5
+    elif "SM" in soil_type:
+        S = 1.2
     else:
-        return 1.2
+        S = 1.0
 
-def get_rd(z):
-    return max(0.5, 1.0 - 0.015 * z)
+    amax = Z * S * 9.81  # m/s²
+    amax_g = amax / 9.81
 
-# --- Streamlit UI Setup ---
-st.set_page_config(page_title="Liquefaction Calculator", layout="centered")
-st.title("🧪 Soil Classification & Liquefaction Calculator")
-st.caption("This tool classifies the soil and evaluates liquefaction potential using the CSR vs CRR method.")
+    st.session_state.amax_g = amax_g
+    st.session_state.step2_complete = True
 
-# --- Step 1: Soil Classification Inputs ---
-with st.expander("📌 Step 1: Soil Classification Inputs"):
-    col1, col2 = st.columns(2)
-    with col1:
-        D10 = st.number_input("D10 (mm)", value=0.1, min_value=0.01, step=0.01)
-        D30 = st.number_input("D30 (mm)", value=0.25, min_value=0.01, step=0.01)
-        D60 = st.number_input("D60 (mm)", value=0.6, min_value=0.01, step=0.01)
-        percent_finer_200 = st.number_input("Passing 75 micron (%)", value=35, min_value=0, max_value=100)
-    with col2:
-        LL = st.number_input("Liquid Limit (LL)", value=40, min_value=0)
-        PL = st.number_input("Plastic Limit (PL)", value=25, min_value=0)
+    st.info(f"✅ Soil Type: {soil_type}, Mapped Seismic Zone: {seismic_zone}")
+    st.success(f"Calculated aₘₐₓ = {amax:.2f} m/s²  →  aₘₐₓ/g = {amax_g:.2f}")
 
-soil_type = classify_soil(D10, D30, D60, LL, PL, percent_finer_200)
-st.success(f"🧾 Classified Soil Type: **{soil_type}**")
+# ---------------------------
+# Step 3: Liquefaction Analysis
+# ---------------------------
+if st.session_state.step2_complete:
+    st.header("🌊 Step 3: Liquefaction Check")
 
-# --- Step 2: Liquefaction Inputs ---
-with st.expander("📌 Step 2: Liquefaction Inputs"):
-    col1, col2 = st.columns(2)
-    with col1:
-        a_max = st.number_input("Peak Ground Acceleration amax (m/s²)", value=3.0, min_value=0.0)
-        sigma_v0 = st.number_input("Total Overburden Stress σv0 (kPa)", value=150.0, min_value=0.0)
-        sigma_v0_eff = st.number_input("Effective Overburden Stress σ'v0 (kPa)", value=100.0, min_value=0.0)
-        z = st.number_input("Depth (m)", value=5.0, min_value=0.0)
-    with col2:
-        N = st.number_input("SPT N-value", value=15, min_value=1)
-        CN = 1.0 + (1.5 / (sigma_v0_eff / 100))  # Overburden correction
-        N60 = N * CN
+    with st.expander("ℹ️ What is Liquefaction?"):
+        st.write("Liquefaction occurs when saturated soil loses strength during seismic shaking. Factor of Safety (FS) helps determine whether liquefaction is likely.")
 
-rd = get_rd(z)
-CSR = calculate_CSR(a_max, 9.81, sigma_v0, sigma_v0_eff, rd)
-CRR = calculate_CRR(N60, soil_type)
-FS = CRR / CSR
+    depth = st.number_input("Depth of Soil Layer (m)", min_value=0.5, max_value=50.0, value=5.0, help="Depth of interest below ground surface")
+    gamma = st.number_input("Unit Weight of Soil (kN/m³)", min_value=10.0, max_value=25.0, value=18.0, help="Unit weight of soil layer")
+    gw_depth = st.number_input("Water Table Depth (m)", min_value=0.0, max_value=50.0, value=2.0, help="Depth to groundwater table")
 
-st.write(f"🧮 Corrected N60 value: **{N60:.2f}**")
-st.write(f"🔧 Stress Reduction Factor (rd): **{rd:.2f}**")
-st.write(f"📉 CSR: **{CSR:.3f}**")
-st.write(f"📈 CRR: **{CRR:.3f}**")
+    n_value = st.number_input("SPT N-Value", min_value=1, max_value=100, value=15, help="Standard Penetration Test blow count")
 
-# --- Safety Message ---
-if FS < 1:
-    st.error(f"🚨 Factor of Safety = {FS:.2f} ➤ Likely **Liquefaction**")
-else:
-    st.success(f"✅ Factor of Safety = {FS:.2f} ➤ **Safe** from Liquefaction")
+    σv = gamma * depth
+    σv_eff = σv - 9.81 * (depth - gw_depth if depth > gw_depth else 0)
+    rd = 1.0 - 0.00765 * depth
+    rd = max(rd, 0.5)
 
-# --- Summary Table ---
-result_data = pd.DataFrame({
-    "Parameter": ["Soil Type", "N60", "rd", "CSR", "CRR", "FS"],
-    "Value": [str(soil_type), f"{N60:.2f}", f"{rd:.2f}", f"{CSR:.3f}", f"{CRR:.3f}", f"{FS:.2f}"]
-})
-st.dataframe(result_data)
+    Cn = (100 / σv_eff) ** 0.5
+    N1_60 = n_value * Cn
 
-# --- CSR vs CRR Plot ---
-if st.checkbox("📊 Show CSR vs CRR Chart"):
-    N60_range = np.linspace(1, 30, 100)
-    CRR_curve = [(1 / 34.0) * n + (n ** 2 / 1260.0) if n <= 15 else 1.2 for n in N60_range]
+    CSR = 0.65 * st.session_state.amax_g * (σv / σv_eff) * rd
+    CRR_7_5 = (1 / (34 - N1_60)) + (N1_60 / 135) + (50 / ((10 * N1_60 + 45) ** 2)) - 1 / 200
+    CRR = CRR_7_5
+    FS = CRR / CSR
 
-    fig, ax = plt.subplots()
-    ax.plot(N60_range, CRR_curve, label="CRR Curve (Clean Sand)", color='green')
-    ax.hlines(CSR, xmin=1, xmax=30, colors='red', linestyles='--', label=f'CSR = {CSR:.3f}')
-    ax.scatter(N60, CRR, color='blue', s=80, label=f'N60 = {N60:.2f}')
-    ax.set_xlabel("Corrected N60")
-    ax.set_ylabel("CRR")
-    ax.set_title("CSR vs CRR Liquefaction Chart")
-    ax.grid(True)
-    ax.legend()
-    st.pyplot(fig)
+    st.subheader("📊 Results:")
+    st.markdown(f"- Total vertical stress σv = **{σv:.2f} kPa**")
+    st.markdown(f"- Effective vertical stress σv' = **{σv_eff:.2f} kPa**")
+    st.markdown(f"- Stress reduction factor rd = **{rd:.3f}**")
+    st.markdown(f"- Overburden correction factor Cn = **{Cn:.3f}**")
+    st.markdown(f"- Corrected N-value (N1_60) = **{N1_60:.2f}**")
+    st.markdown(f"- CSR = **{CSR:.3f}**")
+    st.markdown(f"- CRR = **{CRR:.3f}**")
+    st.markdown(f"- **Factor of Safety = {FS:.2f}**")
 
-# --- Recommendation Section ---
-st.subheader("📋 Recommendations")
-if FS < 1:
-    st.warning("Liquefaction risk is high. Consider soil densification, drainage improvement, ground reinforcement, or other mitigation methods.")
-else:
-    st.success("Liquefaction unlikely. Normal foundation design may proceed, but confirm with site-specific investigation.")
+    if FS < 1:
+        st.error("❌ Liquefaction is **likely** at this location (FS < 1).")
+    else:
+        st.success("✅ Liquefaction is **not likely** at this location (FS ≥ 1).")
